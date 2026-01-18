@@ -1,145 +1,149 @@
 #!/usr/bin/env python3
 """
-Claude Agent SDK 驱动的公考雷达采集工作流
+公考雷达招聘信息采集工作流
 
-使用 Claude 作为"大脑"，自主调用工具脚本完成采集任务。
+直接执行模式 - 不依赖 Claude API
 
 使用方法:
     python agent_workflow.py
 
 环境变量:
-    ANTHROPIC_API_KEY - Claude API 密钥
-    NOTION_TOKEN - Notion Integration Token
+    NOTION_TOKEN - Notion Integration Token (必需)
 """
 
 import asyncio
+import json
 import os
+import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).parent
-
-# 尝试导入 Claude SDK
-try:
-    from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
-    CLAUDE_SDK_AVAILABLE = True
-except ImportError:
-    CLAUDE_SDK_AVAILABLE = False
-
-
-def get_system_prompt() -> str:
-    """读取 CLAUDE.md 作为系统指令"""
-    claude_md = PROJECT_DIR / "CLAUDE.md"
-    if claude_md.exists():
-        return claude_md.read_text(encoding="utf-8")
-    return """你是一个招聘信息采集助手。请执行以下步骤：
-1. 运行 python scripts/scrape_list.py 获取职位列表
-2. 对每个职位运行 python scripts/scrape_detail.py --url <URL>
-3. 运行 python scripts/process_data.py 处理数据
-4. 运行 python scripts/sync_notion.py 同步到 Notion
-"""
+SCRIPTS_DIR = PROJECT_DIR / "scripts"
+DATA_DIR = PROJECT_DIR / "data"
 
 
 def validate_environment() -> bool:
     """验证必要的环境变量"""
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        print("❌ 未设置 ANTHROPIC_API_KEY")
-        return False
     if not os.environ.get("NOTION_TOKEN"):
         print("❌ 未设置 NOTION_TOKEN")
+        print("💡 请在 GitHub Secrets 中配置 NOTION_TOKEN")
         return False
     return True
 
 
-async def run_with_claude():
-    """使用 Claude Agent SDK 运行工作流"""
-    print("🤖 启动 Claude Agent 模式...")
+def run_script(script_name: str, args: list = None) -> tuple[bool, str]:
+    """运行 Python 脚本"""
+    script_path = SCRIPTS_DIR / script_name
+    cmd = [sys.executable, str(script_path)]
+    if args:
+        cmd.extend(args)
     
-    options = ClaudeAgentOptions(
-        system_prompt=get_system_prompt(),
-        max_turns=30,  # 允许足够的交互轮次
-        allowed_tools=["Bash", "Read", "Write"],
-        permission_mode="acceptEdits",
-        cwd=str(PROJECT_DIR),
-    )
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    output = result.stdout + result.stderr
     
-    client = ClaudeSDKClient(options)
-    
-    prompt = """请执行今日的公考雷达招聘信息采集任务。
-
-按照 CLAUDE.md 中定义的步骤执行：
-1. 首先运行 scripts/scrape_list.py 获取职位列表
-2. 查看输出的 job_list 文件，获取职位 URL
-3. 对每个职位运行 scripts/scrape_detail.py --url "<URL>" 获取详情
-4. 运行 scripts/process_data.py 处理数据  
-5. 运行 scripts/sync_notion.py 同步到 Notion
-6. 输出采集统计报告
-
-开始执行。"""
-    
-    try:
-        async for message in client.query(prompt):
-            if hasattr(message, 'text'):
-                print(message.text)
-            elif hasattr(message, 'content'):
-                for block in message.content:
-                    if hasattr(block, 'text'):
-                        print(block.text)
-    except Exception as e:
-        print(f"❌ Claude Agent 执行出错: {e}")
-        return False
-    finally:
-        await client.close()
-    
-    return True
+    return result.returncode == 0, output
 
 
-async def run_fallback():
-    """回退到直接执行模式（不使用 Claude SDK）"""
-    import subprocess
-    
-    print("📋 直接执行模式 (无 Claude SDK)...")
-    
-    scripts = [
-        ("scrape_list.py", []),
-        ("process_data.py", []),
-        ("sync_notion.py", [])
-    ]
-    
-    for script, args in scripts:
-        script_path = PROJECT_DIR / "scripts" / script
-        print(f"\n🔄 运行: {script}")
-        
-        cmd = [sys.executable, str(script_path)] + args
-        result = subprocess.run(cmd, capture_output=False)
-        
-        if result.returncode != 0:
-            print(f"⚠️ {script} 执行失败")
-    
-    return True
-
-
-async def main():
-    """主入口"""
+def main():
+    """主工作流"""
     print("🚀 公考雷达招聘信息采集工作流")
-    print(f"⏰ 执行时间: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"⏰ 执行时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("📋 模式: 直接执行 (无需 Claude API)")
     
     if not validate_environment():
         sys.exit(1)
     
-    # 优先使用 Claude SDK
-    if CLAUDE_SDK_AVAILABLE:
-        success = await run_with_claude()
-    else:
-        print("⚠️ Claude SDK 未安装，使用直接执行模式")
-        success = await run_fallback()
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     
-    if success:
-        print("\n🎉 采集工作流完成!")
-    else:
-        print("\n❌ 采集工作流失败")
-        sys.exit(1)
+    stats = {"scraped": 0, "synced": 0, "skipped": 0, "failed": 0}
+    
+    # Step 1: 抓取职位列表
+    print("\n" + "="*50)
+    print("🌐 Step 1: 抓取公考雷达职位列表")
+    print("="*50)
+    
+    success, output = run_script("scrape_list.py")
+    print(output)
+    
+    if not success:
+        print("❌ 抓取列表失败")
+        # 继续执行，可能有之前的数据
+    
+    # 读取职位列表获取 URL
+    today = datetime.now().strftime("%Y%m%d")
+    job_list_file = DATA_DIR / f"job_list_{today}.json"
+    
+    job_urls = []
+    if job_list_file.exists():
+        with open(job_list_file, "r", encoding="utf-8") as f:
+            jobs = json.load(f)
+            job_urls = [job.get("url") for job in jobs if job.get("url")]
+            stats["scraped"] = len(job_urls)
+            print(f"📊 找到 {len(job_urls)} 个职位")
+    
+    # Step 2: 抓取职位详情 (限制数量避免超时)
+    if job_urls:
+        print("\n" + "="*50)
+        print("📄 Step 2: 抓取职位详情")
+        print("="*50)
+        
+        max_jobs = int(os.environ.get("MAX_JOBS", "15"))
+        job_urls = job_urls[:max_jobs]
+        
+        for i, url in enumerate(job_urls, 1):
+            print(f"   [{i}/{len(job_urls)}] 获取详情...")
+            success, output = run_script("scrape_detail.py", ["--url", url])
+            if not success:
+                print(f"      ⚠️ 失败")
+    
+    # Step 3: 处理数据
+    print("\n" + "="*50)
+    print("🔄 Step 3: 处理合并数据")
+    print("="*50)
+    
+    success, output = run_script("process_data.py")
+    print(output)
+    
+    # Step 4: 同步到 Notion
+    print("\n" + "="*50)
+    print("☁️ Step 4: 同步到 Notion")
+    print("="*50)
+    
+    success, output = run_script("sync_notion.py")
+    print(output)
+    
+    # 解析同步结果
+    import re
+    match = re.search(r"成功:\s*(\d+)", output)
+    if match:
+        stats["synced"] = int(match.group(1))
+    match = re.search(r"跳过:\s*(\d+)", output)
+    if match:
+        stats["skipped"] = int(match.group(1))
+    match = re.search(r"失败:\s*(\d+)", output)
+    if match:
+        stats["failed"] = int(match.group(1))
+    
+    # Step 5: 生成报告
+    print("\n" + "="*50)
+    print("📊 采集完成统计")
+    print("="*50)
+    print(f"📥 抓取职位: {stats['scraped']} 条")
+    print(f"✅ 新增同步: {stats['synced']} 条")
+    print(f"⏭️ 跳过重复: {stats['skipped']} 条")
+    print(f"❌ 处理失败: {stats['failed']} 条")
+    
+    # 保存摘要
+    summary_file = DATA_DIR / "collect_summary.md"
+    with open(summary_file, "w", encoding="utf-8") as f:
+        f.write(f"- 抓取职位: {stats['scraped']} 条\n")
+        f.write(f"- 新增同步: {stats['synced']} 条\n")
+        f.write(f"- 跳过重复: {stats['skipped']} 条\n")
+    
+    print("\n🎉 采集工作流完成!")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

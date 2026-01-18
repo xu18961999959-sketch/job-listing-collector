@@ -31,7 +31,7 @@ jobs:
       
       - name: Install dependencies
         run: |
-          pip install claude-agent-sdk playwright beautifulsoup4 requests
+          pip install playwright beautifulsoup4 requests
           playwright install chromium --with-deps
       
       - name: Run Claude Agent Workflow
