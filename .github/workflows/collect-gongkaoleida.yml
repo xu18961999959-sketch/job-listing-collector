@@ -1,0 +1,59 @@
+name: 公考雷达招聘信息采集
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # UTC 06:00 = 北京时间 14:00
+  workflow_dispatch:
+    inputs:
+      date:
+        description: '采集日期 (YYYY-MM-DD)，留空则采集当天'
+        required: false
+        type: string
+
+env:
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+
+jobs:
+  collect-jobs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install claude-agent-sdk playwright beautifulsoup4 requests
+          playwright install chromium --with-deps
+      
+      - name: Run Claude Agent Workflow
+        run: python agent_workflow.py
+        env:
+          COLLECT_DATE: ${{ github.event.inputs.date }}
+      
+      - name: Commit data files
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add data/ || true
+          git diff --staged --quiet || git commit -m "Auto: 采集 $(date '+%Y-%m-%d') 招聘信息"
+          git push || true
+      
+      - name: Job Summary
+        run: |
+          echo "## ✅ 采集完成" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **执行时间**: $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_STEP_SUMMARY
+          echo "- **采集日期**: ${{ github.event.inputs.date || '今天' }}" >> $GITHUB_STEP_SUMMARY
+          if [ -f data/gongkaoleida_*.json ]; then
+            COUNT=$(cat data/gongkaoleida_*.json | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+            echo "- **采集数量**: ${COUNT} 条" >> $GITHUB_STEP_SUMMARY
+          fi
