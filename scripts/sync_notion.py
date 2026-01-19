@@ -79,20 +79,26 @@ class NotionSync:
         
         return urls
     
-    def create_page(self, job: dict) -> bool:
+    def create_page(self, job: dict) -> tuple[bool, str]:
         """创建一条记录"""
         url = f"{NOTION_API_URL}/pages"
         
+        # 清理字段值，确保不是 None
+        def clean(val, max_len=100):
+            if val is None:
+                return ""
+            return str(val)[:max_len]
+        
         properties = {
-            "职位名称": {"title": [{"text": {"content": job.get("职位名称", "未知")[:100]}}]},
-            "招聘单位": {"rich_text": [{"text": {"content": job.get("招聘单位", "")[:200]}}]},
-            "薪资范围": {"rich_text": [{"text": {"content": job.get("薪资范围", "")[:100]}}]},
-            "工作地点": {"rich_text": [{"text": {"content": job.get("工作地点", "")[:100]}}]},
-            "来源网站": {"rich_text": [{"text": {"content": job.get("来源网站", "")[:100]}}]},
-            "职位描述": {"rich_text": [{"text": {"content": job.get("职位描述", "")[:2000]}}]},
-            "招聘人数": {"rich_text": [{"text": {"content": job.get("招聘人数", "")[:50]}}]},
-            "学历要求": {"rich_text": [{"text": {"content": job.get("学历要求", "")[:50]}}]},
-            "报名截止": {"rich_text": [{"text": {"content": job.get("报名截止", "")[:50]}}]},
+            "职位名称": {"title": [{"text": {"content": clean(job.get("职位名称", "未知"), 100)}}]},
+            "招聘单位": {"rich_text": [{"text": {"content": clean(job.get("招聘单位", ""), 200)}}]},
+            "薪资范围": {"rich_text": [{"text": {"content": clean(job.get("薪资范围", ""), 100)}}]},
+            "工作地点": {"rich_text": [{"text": {"content": clean(job.get("工作地点", ""), 100)}}]},
+            "来源网站": {"rich_text": [{"text": {"content": clean(job.get("来源网站", ""), 100)}}]},
+            "职位描述": {"rich_text": [{"text": {"content": clean(job.get("职位描述", ""), 2000)}}]},
+            "招聘人数": {"rich_text": [{"text": {"content": clean(job.get("招聘人数", ""), 50)}}]},
+            "学历要求": {"rich_text": [{"text": {"content": clean(job.get("学历要求", ""), 50)}}]},
+            "报名截止": {"rich_text": [{"text": {"content": clean(job.get("报名截止", ""), 50)}}]},
             "状态": {"select": {"name": "新增"}}
         }
         
@@ -101,21 +107,28 @@ class NotionSync:
         
         if job.get("发布日期"):
             try:
-                date_str = job["发布日期"].split(" ")[0]
-                properties["发布日期"] = {"date": {"start": date_str}}
+                date_str = str(job["发布日期"]).split(" ")[0]
+                # 验证日期格式
+                if len(date_str) == 10 and date_str[4] == "-":
+                    properties["发布日期"] = {"date": {"start": date_str}}
             except:
                 pass
         
         if job.get("采集时间"):
             try:
-                dt_str = job["采集时间"].replace(" ", "T")
+                dt_str = str(job["采集时间"]).replace(" ", "T")
                 properties["采集时间"] = {"date": {"start": dt_str}}
             except:
                 pass
         
         payload = {"parent": {"database_id": self.database_id}, "properties": properties}
         resp = requests.post(url, headers=self.headers, json=payload)
-        return resp.status_code == 200
+        
+        if resp.status_code == 200:
+            return True, ""
+        else:
+            error_msg = resp.text[:200] if resp.text else f"HTTP {resp.status_code}"
+            return False, error_msg
     
     def sync(self, jobs: list) -> dict:
         """同步所有数据"""
@@ -124,9 +137,14 @@ class NotionSync:
         existing = self.get_existing_urls()
         print(f"📊 数据库已有: {len(existing)} 条记录")
         
+        first_error = None
         for i, job in enumerate(jobs, 1):
             job_url = job.get("原文链接", "")
-            job_title = job.get("职位名称", "未知")[:30]
+            job_title = job.get("职位名称", "未知")
+            if job_title:
+                job_title = str(job_title)[:30]
+            else:
+                job_title = "未知"
             
             if job_url in existing:
                 stats["skipped"] += 1
@@ -134,11 +152,18 @@ class NotionSync:
                 continue
             
             print(f"   [{i}/{len(jobs)}] 同步: {job_title}...")
-            if self.create_page(job):
+            success, error = self.create_page(job)
+            if success:
                 stats["success"] += 1
                 existing.add(job_url)
             else:
                 stats["failed"] += 1
+                if not first_error:
+                    first_error = error
+                print(f"      ❌ 错误: {error[:100]}")
+        
+        if first_error:
+            print(f"\n⚠️ 首个错误详情: {first_error}")
         
         return stats
 
