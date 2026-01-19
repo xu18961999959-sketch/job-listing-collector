@@ -2,13 +2,13 @@
 """
 抓取公考雷达职位列表
 
-支持分页和日期筛选
+支持分页抓取
 
 使用方法:
-    python scripts/scrape_list.py [--date YYYY-MM] [--pages N]
+    python scripts/scrape_list.py [--pages N]
     
 示例:
-    python scripts/scrape_list.py --date 2025-12 --pages 10
+    python scripts/scrape_list.py --pages 10
 """
 
 import argparse
@@ -41,47 +41,24 @@ def is_recruitment_post(title: str) -> bool:
     return False
 
 
-def matches_date(text: str, target_yearmonth: str) -> bool:
-    """检查文本是否包含目标年月"""
-    # target_yearmonth 格式: "2025-12"
-    if not target_yearmonth:
-        return True
-    
-    year, month = target_yearmonth.split("-")
-    
-    # 检查是否包含年月
-    patterns = [
-        f"{year}年{int(month)}月",
-        f"{year}-{month}",
-        f"{year}-{int(month):02d}",
-        f"{year}/{month}",
-    ]
-    
-    for pattern in patterns:
-        if pattern in text:
-            return True
-    
-    return False
-
-
-async def fetch_page(page, playwright, target_date: str = None) -> list:
+async def fetch_page(page_num: int, playwright) -> list:
     """抓取单页职位列表"""
-    url = LIST_URL_TEMPLATE.format(page=page)
+    url = LIST_URL_TEMPLATE.format(page=page_num)
     jobs = []
     
     browser = await playwright.chromium.launch(headless=True)
     context = await browser.new_context(
         user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     )
-    page_obj = await context.new_page()
+    page = await context.new_page()
     
     try:
-        print(f"   📄 加载第 {page} 页...")
-        await page_obj.goto(url, timeout=60000, wait_until="domcontentloaded")
+        print(f"   📄 加载第 {page_num} 页...")
+        await page.goto(url, timeout=60000, wait_until="domcontentloaded")
         await asyncio.sleep(3)
         
-        # 获取所有链接和发布时间
-        items = await page_obj.evaluate("""
+        # 获取所有职位链接
+        items = await page.evaluate("""
             () => {
                 const results = [];
                 const links = document.querySelectorAll('a');
@@ -90,23 +67,11 @@ async def fetch_page(page, playwright, target_date: str = None) -> list:
                     const href = link.href;
                     const title = link.innerText.trim();
                     
-                    // 尝试获取日期信息（从附近元素）
-                    let dateText = '';
-                    const parent = link.parentElement;
-                    if (parent) {
-                        const dateEl = parent.querySelector('.date, .time, [class*="date"], [class*="time"]');
-                        if (dateEl) dateText = dateEl.innerText;
-                    }
-                    
-                    // 获取所有文本用于日期匹配
-                    const fullText = link.closest('li, .item, [class*="item"]')?.innerText || '';
-                    
-                    if (href && title && title.length > 10 && (href.includes('/article/') || href.includes('/info/'))) {
+                    if (href && title && title.length > 10 && 
+                        (href.includes('/article/') || href.includes('/info/'))) {
                         results.push({
                             title: title.substring(0, 200),
-                            url: href,
-                            dateText: dateText,
-                            context: fullText.substring(0, 500)
+                            url: href
                         });
                     }
                 });
@@ -118,11 +83,6 @@ async def fetch_page(page, playwright, target_date: str = None) -> list:
         for item in items:
             title = item.get("title", "")
             full_url = item.get("url", "")
-            context_text = item.get("context", "") + " " + title
-            
-            # 日期筛选
-            if target_date and not matches_date(context_text, target_date):
-                continue
             
             if not is_recruitment_post(title):
                 continue
@@ -130,47 +90,46 @@ async def fetch_page(page, playwright, target_date: str = None) -> list:
             jobs.append({
                 "title": title,
                 "url": full_url,
-                "date": target_date or datetime.now().strftime("%Y-%m-%d"),
-                "source": "",
-                "date_text": item.get("dateText", "")
+                "date": "",  # 日期将从详情页提取
+                "source": ""
             })
         
+        print(f"      找到 {len(jobs)} 条招聘公告")
+        
     except Exception as e:
-        print(f"   ⚠️ 第 {page} 页抓取失败: {e}")
+        print(f"   ⚠️ 第 {page_num} 页抓取失败: {e}")
     finally:
         await browser.close()
     
     return jobs
 
 
-async def fetch_list(target_date: str, max_pages: int) -> list:
+async def fetch_list(max_pages: int) -> list:
     """使用 Playwright 抓取职位列表（支持分页）"""
     try:
         from playwright.async_api import async_playwright
     except ImportError:
-        print("❌ 请安装 playwright: pip install playwright && playwright install chromium")
+        print("❌ 请安装 playwright")
         sys.exit(1)
     
     all_jobs = []
-    print(f"📋 开始抓取 {target_date or '最新'} 的招聘信息...")
+    print(f"📋 开始抓取招聘信息...")
     print(f"🔢 最大页数: {max_pages}")
     
     async with async_playwright() as p:
+        empty_pages = 0
         for page_num in range(1, max_pages + 1):
-            page_jobs = await fetch_page(page_num, p, target_date)
+            page_jobs = await fetch_page(page_num, p)
             
-            if not page_jobs and page_num > 1:
-                print(f"   📄 第 {page_num} 页无匹配职位，停止")
-                break
+            if not page_jobs:
+                empty_pages += 1
+                if empty_pages >= 2:
+                    print(f"   连续 {empty_pages} 页无内容，停止翻页")
+                    break
+            else:
+                empty_pages = 0
+                all_jobs.extend(page_jobs)
             
-            all_jobs.extend(page_jobs)
-            print(f"      找到 {len(page_jobs)} 条匹配职位")
-            
-            if len(page_jobs) == 0 and page_num >= 3:
-                print(f"   连续无匹配，停止翻页")
-                break
-            
-            # 休息一下避免过快请求
             await asyncio.sleep(1)
     
     # 去重
@@ -187,29 +146,21 @@ async def fetch_list(target_date: str, max_pages: int) -> list:
 
 def main():
     parser = argparse.ArgumentParser(description="抓取公考雷达职位列表")
-    parser.add_argument("--date", help="目标年月 YYYY-MM (如 2025-12)", 
-                        default=os.environ.get("COLLECT_DATE", ""))
     parser.add_argument("--pages", help="最大页数", type=int,
                         default=int(os.environ.get("MAX_PAGES", "5")))
     args = parser.parse_args()
     
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     
-    target_date = args.date
-    if target_date:
-        print(f"🎯 目标日期: {target_date}")
-    else:
-        print("🎯 目标日期: 最新职位")
-    
-    jobs = asyncio.run(fetch_list(target_date, args.pages))
+    jobs = asyncio.run(fetch_list(args.pages))
     
     if not jobs:
         print("⚠️ 没有找到符合条件的招聘公告")
         return
     
     # 保存
-    date_str = target_date.replace("-", "") if target_date else datetime.now().strftime("%Y%m%d")
-    output_file = DATA_DIR / f"job_list_{date_str}.json"
+    today_str = datetime.now().strftime("%Y%m%d")
+    output_file = DATA_DIR / f"job_list_{today_str}.json"
     
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(jobs, f, ensure_ascii=False, indent=2)
