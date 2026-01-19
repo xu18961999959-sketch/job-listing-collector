@@ -29,34 +29,77 @@ async def fetch_detail(url: str) -> dict:
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        )
+        page = await context.new_page()
         
         try:
-            await page.goto(url, timeout=30000)
-            await page.wait_for_load_state("networkidle", timeout=15000)
+            await page.goto(url, timeout=30000, wait_until="domcontentloaded")
+            await asyncio.sleep(3)  # 等待 JS 渲染
             
             # 获取标题
             title = await page.title()
             result["title"] = title
             
-            # 获取正文内容
+            # 尝试多种选择器获取正文内容
             content = await page.evaluate("""
                 () => {
+                    // 公考雷达特定选择器
                     const selectors = [
-                        '.article-content', '.content', '.post-content',
-                        '.detail-content', '#content', 'article', '.main'
+                        '.article-content',
+                        '.detail-content', 
+                        '.content-wrap',
+                        '.post-content',
+                        '.news-content',
+                        '.main-content',
+                        '#article-content',
+                        '#content',
+                        'article',
+                        '.content',
+                        '.main',
+                        '[class*="content"]',
+                        '[class*="article"]',
+                        '[class*="detail"]'
                     ];
+                    
                     for (const sel of selectors) {
-                        const el = document.querySelector(sel);
-                        if (el) {
-                            return el.innerText;
-                        }
+                        try {
+                            const el = document.querySelector(sel);
+                            if (el && el.innerText && el.innerText.length > 100) {
+                                return el.innerText.trim();
+                            }
+                        } catch(e) {}
                     }
-                    return document.body.innerText;
+                    
+                    // 如果没找到，获取 body 内容但排除导航等
+                    const body = document.body.cloneNode(true);
+                    const removeSelectors = ['nav', 'header', 'footer', '.nav', '.header', '.footer', '.sidebar', 'script', 'style'];
+                    removeSelectors.forEach(sel => {
+                        body.querySelectorAll(sel).forEach(el => el.remove());
+                    });
+                    
+                    return body.innerText.trim();
                 }
             """)
             
-            result["content"] = content[:5000] if content else ""
+            result["content"] = content[:8000] if content else ""
+            
+            # 额外提取日期信息
+            date_text = await page.evaluate("""
+                () => {
+                    const dateSelectors = ['.date', '.time', '.publish-time', '.post-date', '[class*="date"]', '[class*="time"]'];
+                    for (const sel of dateSelectors) {
+                        try {
+                            const el = document.querySelector(sel);
+                            if (el) return el.innerText.trim();
+                        } catch(e) {}
+                    }
+                    return '';
+                }
+            """)
+            if date_text:
+                result["date_text"] = date_text
             
         except Exception as e:
             result["error"] = str(e)
@@ -88,7 +131,10 @@ def main():
             except:
                 details = []
     
-    details.append(result)
+    # 检查是否已存在
+    existing_urls = {d.get("url") for d in details}
+    if args.url not in existing_urls:
+        details.append(result)
     
     with open(temp_file, "w", encoding="utf-8") as f:
         json.dump(details, f, ensure_ascii=False, indent=2)
@@ -96,8 +142,11 @@ def main():
     if result.get("error"):
         print(f"❌ 失败: {result['error']}")
     else:
-        print(f"✅ 成功: {result['title'][:50]}...")
-        print(f"   内容长度: {len(result['content'])} 字符")
+        content_len = len(result.get('content', ''))
+        print(f"✅ 成功: {result.get('title', 'N/A')[:40]}...")
+        print(f"   内容长度: {content_len} 字符")
+        if content_len < 100:
+            print(f"   ⚠️ 内容可能提取不完整")
 
 
 if __name__ == "__main__":

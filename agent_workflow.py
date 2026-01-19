@@ -89,14 +89,20 @@ def main():
         print("📄 Step 2: 抓取职位详情")
         print("="*50)
         
-        max_jobs = int(os.environ.get("MAX_JOBS", "15"))
-        job_urls = job_urls[:max_jobs]
+        max_jobs = int(os.environ.get("MAX_JOBS", "30"))
+        jobs_to_process = job_urls[:max_jobs]
+        print(f"   将处理 {len(jobs_to_process)} 个职位详情")
         
-        for i, url in enumerate(job_urls, 1):
-            print(f"   [{i}/{len(job_urls)}] 获取详情...")
+        success_count = 0
+        for i, url in enumerate(jobs_to_process, 1):
+            print(f"   [{i}/{len(jobs_to_process)}] 获取详情...")
             success, output = run_script("scrape_detail.py", ["--url", url])
-            if not success:
-                print(f"      ⚠️ 失败")
+            if success and "内容长度" in output:
+                success_count += 1
+            else:
+                print(f"      ⚠️ 失败或内容为空")
+        
+        print(f"   ✅ 详情抓取完成: {success_count}/{len(jobs_to_process)}")
     
     # Step 3: 处理数据
     print("\n" + "="*50)
