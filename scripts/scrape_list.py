@@ -51,15 +51,38 @@ async def fetch_list(target_date: str) -> list:
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
+        page = await context.new_page()
         
         try:
-            await page.goto(LIST_URL, timeout=60000)
-            await page.wait_for_load_state("networkidle", timeout=30000)
-            await asyncio.sleep(2)
+            print("   加载页面...")
+            await page.goto(LIST_URL, timeout=60000, wait_until="domcontentloaded")
+            
+            # 等待页面渲染
+            print("   等待页面渲染...")
+            await asyncio.sleep(5)
+            
+            # 尝试等待特定元素
+            try:
+                await page.wait_for_selector("a", timeout=10000)
+            except:
+                print("   ⚠️ 未找到链接元素，继续尝试...")
+            
+            # 获取页面内容用于调试
+            content = await page.content()
+            print(f"   📄 页面大小: {len(content)} 字节")
+            
+            # 保存页面用于调试
+            debug_file = DATA_DIR / "debug_page.html"
+            with open(debug_file, "w", encoding="utf-8") as f:
+                f.write(content)
+            print(f"   💾 已保存调试页面: {debug_file}")
             
             # 获取所有链接
             links = await page.query_selector_all("a")
+            print(f"   🔗 找到 {len(links)} 个链接")
             
             for link in links:
                 try:
@@ -68,10 +91,14 @@ async def fetch_list(target_date: str) -> list:
                     
                     if not title or len(title.strip()) < 10:
                         continue
-                    if not href or href.startswith("#"):
+                    if not href or href.startswith("#") or href.startswith("javascript"):
                         continue
                     
                     title = title.strip()
+                    
+                    # 检查是否包含 article 路径（公考雷达文章链接格式）
+                    if "/article/" not in href and "/info/" not in href:
+                        continue
                     
                     if not is_recruitment_post(title):
                         continue
@@ -84,11 +111,13 @@ async def fetch_list(target_date: str) -> list:
                         "date": target_date,
                         "source": ""
                     })
-                except:
+                except Exception as e:
                     continue
             
         except Exception as e:
             print(f"❌ 抓取失败: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
             await browser.close()
     
@@ -101,6 +130,11 @@ async def fetch_list(target_date: str) -> list:
             unique_jobs.append(job)
     
     print(f"✅ 找到 {len(unique_jobs)} 条招聘公告")
+    
+    # 打印前几条用于调试
+    for i, job in enumerate(unique_jobs[:5], 1):
+        print(f"   {i}. {job['title'][:40]}...")
+    
     return unique_jobs
 
 
@@ -116,6 +150,7 @@ def main():
     
     if not jobs:
         print("⚠️ 没有找到符合条件的招聘公告")
+        print("💡 可能原因: 网站使用 JavaScript 渲染，或 IP 被限制")
         return
     
     # 保存
@@ -126,11 +161,7 @@ def main():
         json.dump(jobs, f, ensure_ascii=False, indent=2)
     
     print(f"💾 已保存到: {output_file}")
-    print(f"📊 职位列表:")
-    for i, job in enumerate(jobs[:10], 1):
-        print(f"   {i}. {job['title'][:50]}...")
-    if len(jobs) > 10:
-        print(f"   ... 共 {len(jobs)} 条")
+    print(f"📊 共 {len(jobs)} 条职位")
 
 
 if __name__ == "__main__":
