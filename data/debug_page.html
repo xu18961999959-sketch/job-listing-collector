@@ -529,28 +529,28 @@
                     <div class="aside-list hot-job">
                         <ul>
                                                             <li>
-                                    <a href="https://www.gongkaoleida.com/ask/detail/460016">
-                                        他这个专业知识是啥啊
+                                    <a href="https://www.gongkaoleida.com/ask/detail/461188">
+                                        报名信息通过了，为啥照片一直未审核
                                     </a>
                                 </li>
                                                             <li>
-                                    <a href="https://www.gongkaoleida.com/ask/detail/459906">
-                                        別那么多套路，劳务派遣就是劳务派遣，难道派遣至故宫搬砖就是皇家人了？
+                                    <a href="https://www.gongkaoleida.com/ask/detail/461168">
+                                        几号考
                                     </a>
                                 </li>
                                                             <li>
-                                    <a href="https://www.gongkaoleida.com/ask/detail/459890">
-                                        应届生含择期没2年吗
+                                    <a href="https://www.gongkaoleida.com/ask/detail/461113">
+                                        会公布报名人数吗？
                                     </a>
                                 </li>
                                                             <li>
-                                    <a href="https://www.gongkaoleida.com/ask/detail/459836">
-                                        附件
+                                    <a href="https://www.gongkaoleida.com/ask/detail/461108">
+                                        有编制吗
                                     </a>
                                 </li>
                                                             <li>
-                                    <a href="https://www.gongkaoleida.com/ask/detail/459814">
-                                        请问是网上投递吗，投递邮箱是什么呢
+                                    <a href="https://www.gongkaoleida.com/ask/detail/461101">
+                                        考试范围
                                     </a>
                                 </li>
                               
@@ -748,7 +748,7 @@
             app.get_qrcode       = 'https://www.gongkaoleida.com/user/login/qrcode';
             app.bind_phone       = 'https://www.gongkaoleida.com/user/login/bindphone';
             app.get_captch       = app.api_domain + '/api/login/captcha/get';
-            app.access_token     = 'l1yZeSjtnGjZuMJmZNcvrcSrtvQlEOe15LdxVZgW';
+            app.access_token     = 'lgCEA0ejFk3g6GOSDbc2H0Bm0zFm0F1WG0h7KeJS';
             app.verify_captch    = 'https://www.gongkaoleida.com/user/login/verifycaptch';
             app.verify_captch_v2 = app.api_domain + '/api/user/v1/captcha/verify';
             app.resume_url       = 'https://www.gongkaoleida.com/user/login/resume';
@@ -893,4 +893,29 @@
             is_vip:"",
             vip_level:"",
         })
-    </script><script src="https://jspassport.ssl.qhimg.com/11.0.1.js?7e2e44c9e6fd4badd4bd5c37fa526a98" id="sozz"></script><script async="" id="zhichiScript" class="zhiCustomBtn" src="https://gongkaoleida.sobot.com/chat/frame/v2/entrance.js?sysnum=f34c6cea98dd4bac83d4238144ad34cb"></script><script charset="utf-8" src="https://s.ssl.qhres2.com/ssl/ab77b6ea7f3fbf79.js"></script></body></html>
+    </script><script src="https://jspassport.ssl.qhimg.com/11.0.1.js?7e2e44c9e6fd4badd4bd5c37fa526a98" id="sozz"></script><script async="" id="zhichiScript" class="zhiCustomBtn" src="https://gongkaoleida.sobot.com/chat/frame/v2/entrance.js?sysnum=f34c6cea98dd4bac83d4238144ad34cb"></script><script charset="utf-8" src="https://s.ssl.qhres2.com/ssl/ab77b6ea7f3fbf79.js"></script>
+    <script src="https://www.gongkaoleida.com/home/js/pcGuide.js?version=1.0.0"></script>
+<script type="text/javascript">
+    $(function(){
+        let toast = ''
+        if(toast){
+            layer.msg(toast, {icon: 2});
+        }
+        PopSwitch("pop_switch_trigger", "pop-switch");
+
+        var _areaIds = home.getCookie('areaIds');  //地区
+        var _education = home.getCookie('education');  //学历
+        var _major = home.getCookie('majorName');  //专业名称
+        var _cookiedata = {_major,_education,_areaIds}
+        
+        $("#areaBanner").Guide({
+            CookieData: _cookiedata,
+            Id: "3004",
+            Userid: app.userId,
+            device: "pc",
+            from_device: "pc",
+        })
+    })
+</script>
+
+</body></html>
